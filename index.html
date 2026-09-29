@@ -153,6 +153,19 @@ summary{cursor:pointer;color:var(--pri-d);font-weight:600}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
 .chip{border:2px solid var(--bd);background:#fff;border-radius:99px;padding:6px 14px;font:inherit;font-weight:600;color:var(--mut);cursor:pointer;min-height:38px}
 .chip.on{border-color:var(--pri);background:var(--pri-l);color:var(--pri-d)}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:clamp(1rem,5.4vw,1.55rem);font-weight:800;letter-spacing:.03em;white-space:nowrap;color:var(--pri-d);background:var(--pri-l);border-radius:14px;padding:14px 4px;margin:10px 0;user-select:all}
+.codebox .btn{margin-top:4px}
+.warnbox{background:var(--acc-l);border:1px solid #f3cf9e}
+.warnbox ul{margin:6px 0;padding-left:20px}.warnbox li{margin:4px 0;line-height:1.6}
+.bkbar{background:#fff7e0;border:1px solid #f3d98a}.bkbar p{margin:4px 0 8px}
+.amsg{margin-top:8px;font-size:.92rem;line-height:1.6}.amsg:empty{display:none}
+.amsg.ok{color:var(--ok)}.amsg.bad{color:var(--bad)}
+.ainput{width:100%;border:2px solid var(--bd);border-radius:14px;padding:12px 14px;font:inherit;font-size:1.15rem;letter-spacing:.05em;text-transform:uppercase;font-family:ui-monospace,Menlo,Consolas,monospace}
+.ainput:focus{outline:0;border-color:var(--pri)}
+.atext{width:100%;min-height:110px;border:2px solid var(--bd);border-radius:14px;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;word-break:break-all}
+.acbar{padding:10px 14px}.acbar .mid b{font-size:1rem;letter-spacing:.04em}
+#savebar{display:none;position:fixed;left:0;right:0;top:0;background:var(--bad);color:#fff;padding:10px 14px;z-index:30;text-align:center;font-size:.9rem}
+#savebar a{color:#fff;text-decoration:underline;font-weight:700}
 </style>
 </head>
 <body>
@@ -176,21 +189,415 @@ LESSONS.forEach(l=>LESSON[l.id]=l);
 const MID_WORDS = WORDS.filter(w=>!UNIT[w.unit].basic);
 
 /* ============================ 儲存 ============================ */
-const KEY = "geptMidV2", OLDKEY = "geptMidV1";
-let memStore = null;
 function blank(){return {days:[],cards:{},quiz:{},gram:{},sec:{},tot:{c:0,t:0},wrong:[],prod:{},drafts:{},exams:[],goal:20,daily:{date:"",n:0,bonus:0}};}
-function load(){
-  try{
-    const r=localStorage.getItem(KEY); if(r){return Object.assign(blank(),JSON.parse(r));}
-    const o=localStorage.getItem(OLDKEY); // 舊版 (單字編號已改變): 保留成績與文法紀錄, 單字卡進度重新開始
-    if(o){const x=JSON.parse(o); const n=Object.assign(blank(),x); n.cards={}; n.wrong=(x.wrong||[]).filter(q=>!/^(ez|ze|li|cl):/.test(q.id)); return n;}
-  }catch(e){ if(memStore) return memStore; }
-  return blank();
-}
-let S = load();
-function save(){ memStore=S; try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){} }
 function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+/* ============================ 帳號、儲存與備份 (純前端，無後端) ============================ */
+/*
+  結構:
+  gept:idx      -> {v:1, cur:代碼|null, codes:[代碼...], legacy:代碼|null}
+  gept:p:代碼   -> {v:1, code, created, savedAt, backupAt, snooze, data:進度(S)}
+  gept:p:代碼:bak -> 上一份完整紀錄 (每 5 分鐘輪替一次，主檔損毀時使用)
+*/
+const IDX_KEY="gept:idx", PK="gept:p:", CODE_ALPHA="ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const mem={}; let lsOK=true;
+try{ localStorage.setItem("gept:t","1"); localStorage.removeItem("gept:t"); }catch(e){ lsOK=false; }
+const store={   // localStorage 為主；寫入失敗時暫存在記憶體，避免目前畫面的進度遺失
+  get(k){ try{ if(lsOK){ const v=localStorage.getItem(k); if(v!==null) return v; } }catch(e){} return Object.prototype.hasOwnProperty.call(mem,k)?mem[k]:null; },
+  set(k,v){ if(!lsOK){ mem[k]=v; throw new Error("localStorage unavailable"); } try{ localStorage.setItem(k,v); delete mem[k]; }catch(e){ mem[k]=v; throw e; } },
+  del(k){ delete mem[k]; try{ if(lsOK) localStorage.removeItem(k); }catch(e){} }
+};
+let IDX={v:1,cur:null,codes:[],legacy:null}, CUR=null, REC=null, S=null, saveErr=null, lastBak=0;
+
+/* ---------- 代碼 ---------- */
+function genCode(){
+  let out="";
+  const c=(typeof crypto!=="undefined"&&crypto.getRandomValues)?crypto:null;
+  while(out.length<16){
+    const buf=new Uint8Array(32);
+    if(c) c.getRandomValues(buf); else for(let i=0;i<buf.length;i++) buf[i]=Math.floor(Math.random()*256);
+    for(let i=0;i<buf.length&&out.length<16;i++){ if(buf[i]<248) out+=CODE_ALPHA[buf[i]%31]; }   // 248 = 31*8，避免取餘數偏差
+  }
+  return fmtCode(out);
+}
+function fmtCode(s){ return s.match(/.{4}/g).join("-"); }
+function normCode(s){
+  const t=String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  if(t.length!==16) return null;
+  for(const ch of t) if(CODE_ALPHA.indexOf(ch)<0) return null;
+  return fmtCode(t);
+}
+
+/* ---------- 校驗與編碼 ---------- */
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function crcHex(u8){return crc32(u8).toString(16).padStart(8,"0");}
+function utf8(s){return new TextEncoder().encode(s);}
+function unutf8(u){return new TextDecoder().decode(u);}
+function b64u(u8){let s="";for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+function unb64u(str){str=str.replace(/-/g,"+").replace(/_/g,"/");while(str.length%4)str+="=";const b=atob(str),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;}
+/* 小型 LZ77 (LZ4 風格)，在沒有 CompressionStream 的瀏覽器使用 */
+function lzCompress(src){
+  const n=src.length,out=[],ht=new Int32Array(1<<15).fill(-1);
+  const hash=p=>Math.imul(src[p]|(src[p+1]<<8)|(src[p+2]<<16),2654435761)>>>17;
+  const emit=(ls,le,off,ml)=>{
+    const ll=le-ls; out.push((Math.min(ll,15)<<4)|(ml?Math.min(ml-4,15):0));
+    if(ll>=15){let r=ll-15;while(r>=255){out.push(255);r-=255;}out.push(r);}
+    for(let k=ls;k<le;k++)out.push(src[k]);
+    if(ml){out.push(off&255,off>>8);if(ml-4>=15){let r=ml-19;while(r>=255){out.push(255);r-=255;}out.push(r);}}
+  };
+  let i=0,anchor=0;
+  while(i+4<=n){
+    const h=hash(i),j=ht[h];ht[h]=i;
+    if(j>=0&&i-j<=65535&&src[j]===src[i]&&src[j+1]===src[i+1]&&src[j+2]===src[i+2]&&src[j+3]===src[i+3]){
+      let l=4;while(i+l<n&&src[j+l]===src[i+l])l++;
+      emit(anchor,i,i-j,l);
+      for(let k=i+1;k<i+l&&k+3<n;k++)ht[hash(k)]=k;
+      i+=l;anchor=i;
+    }else i++;
+  }
+  emit(anchor,n,0,0);
+  return Uint8Array.from(out);
+}
+function lzDecompress(inp){
+  const out=[];let p=0;
+  while(p<inp.length){
+    const tok=inp[p++];let ll=tok>>4;
+    if(ll===15){let b;do{b=inp[p++];ll+=b;}while(b===255);}
+    for(let k=0;k<ll;k++)out.push(inp[p++]);
+    if(p>=inp.length)break;
+    const off=inp[p]|(inp[p+1]<<8);p+=2;
+    let ml=tok&15;if(ml===15){let b;do{b=inp[p++];ml+=b;}while(b===255);}
+    ml+=4;
+    if(off===0||off>out.length)throw new Error("壓縮資料損毀");
+    const s=out.length-off;for(let k=0;k<ml;k++)out.push(out[s+k]);
+  }
+  return Uint8Array.from(out);
+}
+async function csRun(stream,bytes){
+  const w=stream.writable.getWriter();
+  w.write(bytes).catch(()=>{}); w.close().catch(()=>{});
+  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+}
+
+/* ---------- 進度資料整理與合併 ---------- */
+function isObj(x){return x&&typeof x==="object"&&!Array.isArray(x);}
+function sanitize(d){
+  if(!isObj(d)) return null;
+  const b=blank(), s=Object.assign({},b,d);
+  ["days","wrong","exams"].forEach(k=>{if(!Array.isArray(s[k]))s[k]=b[k];});
+  ["cards","quiz","gram","sec","prod","drafts","tot","daily"].forEach(k=>{if(!isObj(s[k]))s[k]=b[k];});
+  s.days=s.days.filter(x=>typeof x==="string");
+  s.wrong=s.wrong.filter(q=>isObj(q)&&typeof q.id==="string");
+  const cards={};
+  Object.keys(s.cards).forEach(id=>{
+    let v=s.cards[id];
+    if(isObj(v)&&typeof v.b==="number") v=[v.b,Math.round((v.d||0)/60000)];   // 舊格式
+    if(Array.isArray(v)&&typeof v[0]==="number"&&typeof v[1]==="number") cards[id]=[v[0],v[1]];
+  });
+  s.cards=cards;
+  s.goal=(+s.goal>=1&&+s.goal<=500)?Math.round(+s.goal):20;
+  return s;
+}
+function mergeProgress(A,B){   // A、B: {data, t}。逐項取較新或較大的進度
+  const aNew=A.t>=B.t, n=aNew?A:B, o=aNew?B:A, a=n.data, b=o.data;
+  const out=Object.assign({},b,a);
+  out.cards={};
+  new Set(Object.keys(a.cards).concat(Object.keys(b.cards))).forEach(id=>{
+    const x=a.cards[id], y=b.cards[id];
+    out.cards[id]=!x?y:!y?x:(x[0]!==y[0]?(x[0]>y[0]?x:y):(x[1]>=y[1]?x:y));
+  });
+  out.days=Array.from(new Set(a.days.concat(b.days))).sort();
+  const best=(p,q)=>{const r={};new Set(Object.keys(p).concat(Object.keys(q))).forEach(k=>{const x=p[k],y=q[k];
+    r[k]=!x?y:!y?x:Object.assign({},x,{best:Math.max(x.best||0,y.best||0),n:Math.max(x.n||0,y.n||0)});});return r;};
+  out.quiz=best(a.quiz,b.quiz); out.gram=best(a.gram,b.gram);
+  const cnt=(p,q)=>{const r={};new Set(Object.keys(p).concat(Object.keys(q))).forEach(k=>{const x=p[k],y=q[k];r[k]=!x?y:!y?x:((y.t||0)>(x.t||0)?y:x);});return r;};
+  out.sec=cnt(a.sec,b.sec);
+  out.tot=(b.tot.t||0)>(a.tot.t||0)?b.tot:a.tot;
+  const seen=new Set(); out.wrong=[];
+  a.wrong.concat(b.wrong).forEach(q=>{if(!seen.has(q.id)&&out.wrong.length<200){seen.add(q.id);out.wrong.push(q);}});
+  out.prod=Object.assign({},b.prod,a.prod);
+  out.drafts={}; new Set(Object.keys(a.drafts).concat(Object.keys(b.drafts))).forEach(k=>{const x=a.drafts[k]||"",y=b.drafts[k]||"";out.drafts[k]=x.length>=y.length?x:y;});
+  const ek=new Set(); out.exams=[];
+  a.exams.concat(b.exams).forEach(e=>{const k=e.date+"|"+e.c+"|"+e.t;if(!ek.has(k)){ek.add(k);out.exams.push(e);}});
+  out.exams.sort((x,y)=>String(x.date)<String(y.date)?-1:1); out.exams=out.exams.slice(-20);
+  out.goal=a.goal;
+  out.daily=(a.daily.date===b.daily.date)?{date:a.daily.date,n:Math.max(a.daily.n||0,b.daily.n||0),bonus:Math.max(a.daily.bonus||0,b.daily.bonus||0)}:a.daily;
+  return out;
+}
+
+/* ---------- 讀寫 ---------- */
+function scanCodes(){const r=[];try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.indexOf(PK)===0&&!/:bak$/.test(k)){const c=normCode(k.slice(PK.length));if(c)r.push(c);}}}catch(e){}return r;}
+function readIdx(){
+  try{const r=store.get(IDX_KEY);if(r){const x=JSON.parse(r);if(x&&Array.isArray(x.codes))return Object.assign({v:1,cur:null,legacy:null},x);}}catch(e){}
+  return {v:1,cur:null,codes:scanCodes(),legacy:null};
+}
+function writeIdx(){try{store.set(IDX_KEY,JSON.stringify(IDX));}catch(e){noteSaveErr(e);}}
+function readRec(code){
+  for(const k of [PK+code,PK+code+":bak"]){
+    try{const r=store.get(k);if(!r)continue;const x=JSON.parse(r);const d=x&&sanitize(x.data);if(d){x.data=d;x.code=code;return x;}}catch(e){}
+  }
+  return null;
+}
+function newRec(code,data){const t=Date.now();return {v:1,code,created:t,savedAt:t,backupAt:0,snooze:0,data:data||blank()};}
+function fmtClock(ts){if(!ts)return "尚未儲存";const d=new Date(ts),p=n=>String(n).padStart(2,"0");return p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());}
+function noteSaveErr(e){
+  saveErr=e||new Error("save");
+  let bar=document.getElementById("savebar");
+  if(!bar){bar=document.createElement("div");bar.id="savebar";bar.setAttribute("role","alert");document.body.appendChild(bar);}
+  bar.innerHTML=lsOK?"⚠️ 無法寫入瀏覽器儲存空間（可能已滿）。進度暫存在畫面中，請到「帳號」頁下載備份檔。":"⚠️ 這個瀏覽器不允許儲存資料（可能是無痕模式）。關閉頁面後進度會消失，請到「帳號」頁下載備份檔。";
+  bar.innerHTML+=` <a href="#/profile">前往備份</a>`;
+  bar.style.display="block";
+}
+function clearSaveErr(){saveErr=null;const b=document.getElementById("savebar");if(b)b.style.display="none";}
+function save(){
+  if(!CUR||!REC||!S) return;
+  REC.data=S; REC.savedAt=Date.now();
+  try{
+    const key=PK+CUR, json=JSON.stringify(REC);
+    if(REC.savedAt-lastBak>300000){const prev=store.get(key);if(prev){try{store.set(key+":bak",prev);}catch(e){}}lastBak=REC.savedAt;}
+    store.set(key,json);
+    if(saveErr) clearSaveErr();
+  }catch(e){ noteSaveErr(e); }
+}
 function touch(){const t=ymd(new Date()); if(S.days.indexOf(t)<0){S.days.push(t);} save();}
+
+/* ---------- 登入狀態 ---------- */
+function resetTransient(){ try{sess=null;cs=null;}catch(e){} }
+function openProfile(code,rec){
+  CUR=code; REC=rec; S=rec.data; IDX.cur=code;
+  if(IDX.codes.indexOf(code)<0) IDX.codes.push(code);
+  writeIdx(); resetTransient();
+}
+function logout(){ save(); CUR=null; REC=null; S=null; IDX.cur=null; writeIdx(); resetTransient(); }
+function legacyData(){
+  if(IDX.legacy) return null;
+  try{
+    let r=store.get("geptMidV2");
+    if(r){const d=sanitize(JSON.parse(r));if(d&&hasProgress(d))return d;}
+    r=store.get("geptMidV1");
+    if(r){const x=JSON.parse(r);const d=sanitize(x);if(d){d.cards={};d.wrong=d.wrong.filter(q=>!/^(ez|ze|li|cl):/.test(q.id));if(hasProgress(d))return d;}}
+  }catch(e){}
+  return null;
+}
+function hasProgress(d){return d.days.length>0||Object.keys(d.cards).length>0||(d.tot&&d.tot.t>0)||Object.keys(d.gram).length>0;}
+function createProfile(code,data,fromLegacy){
+  const rec=newRec(code,data);
+  store.set(PK+code,JSON.stringify(rec));            // 若失敗會丟出例外，由呼叫端處理
+  if(fromLegacy) IDX.legacy=code;
+  openProfile(code,rec);
+  return rec;
+}
+function initAccount(){
+  IDX=readIdx();
+  if(IDX.cur){const r=readRec(IDX.cur);if(r){CUR=IDX.cur;REC=r;S=r.data;}else IDX.cur=null;}
+}
+function daysSince(ts){return Math.floor((Date.now()-ts)/DAY);}
+function needBackup(){
+  if(!CUR||!REC||!hasProgress(S)) return false;
+  if(REC.snooze&&Date.now()<REC.snooze) return false;
+  return Date.now()-(REC.backupAt||REC.created)>7*DAY;
+}
+function bkBanner(){
+  if(!needBackup()) return "";
+  const d=daysSince(REC.backupAt||REC.created);
+  return `<div class="card bkbar"><b>💾 該備份囉</b><p>${REC.backupAt?"距離上次備份已經 "+d+" 天。":"你還沒有備份過，已使用 "+d+" 天。"}備份可以避免清除瀏覽器資料或換手機後遺失進度。</p><div class="row"><a class="btn sm" href="#/profile">立即備份</a><button class="btn ghost sm" data-act="bkSnooze">明天再提醒</button></div></div>`;
+}
+
+/* ---------- 備份字串與檔案 ---------- */
+async function makeBackupString(){
+  const d=S, payload=JSON.stringify({a:"gept-mid",v:1,c:CUR,t:REC.savedAt||Date.now(),k:crcHex(utf8(JSON.stringify(d))),d});
+  const raw=utf8(payload); let method="l", comp=null;
+  if(typeof CompressionStream!=="undefined"){try{comp=await csRun(new CompressionStream("deflate-raw"),raw);method="d";}catch(e){comp=null;}}
+  if(!comp) comp=lzCompress(raw);
+  return "G1."+method+"."+b64u(comp)+"."+crcHex(comp);
+}
+function makeBackupJson(){
+  return JSON.stringify({app:"gept-mid",v:1,code:CUR,exportedAt:new Date().toISOString(),savedAt:REC.savedAt,checksum:crcHex(utf8(JSON.stringify(S))),data:S},null,1);
+}
+async function parseBackup(text){
+  text=String(text||"").trim().replace(/^\uFEFF/,"");
+  if(!text) throw new Error("沒有內容");
+  let o;
+  if(text[0]==="{"){
+    const j=JSON.parse(text);
+    if(!j||j.app!=="gept-mid"||!isObj(j.data)) throw new Error("這不是本 App 的備份檔");
+    if(j.checksum!==crcHex(utf8(JSON.stringify(j.data)))) throw new Error("備份檔的檢查碼不符，檔案可能被修改或損毀");
+    o={c:j.code,t:j.savedAt||Date.parse(j.exportedAt)||0,d:j.data};
+  } else {
+    const s=text.replace(/\s+/g,""), m=/^G1\.([dl])\.([A-Za-z0-9_-]+)\.([0-9a-f]{8})$/.exec(s);
+    if(!m) throw new Error("備份代碼格式不正確，請確認有完整複製（開頭是 G1.）");
+    let bytes; try{bytes=unb64u(m[2]);}catch(e){throw new Error("備份代碼含有無法辨識的字元");}
+    if(crcHex(bytes)!==m[3]) throw new Error("檢查碼不符，可能少複製了一段文字");
+    let raw;
+    if(m[1]==="d"){
+      if(typeof DecompressionStream==="undefined") throw new Error("這個瀏覽器太舊，無法解開這組備份代碼。請更新瀏覽器，或改用備份檔（.json）");
+      raw=await csRun(new DecompressionStream("deflate-raw"),bytes);
+    } else raw=lzDecompress(bytes);
+    o=JSON.parse(unutf8(raw));
+    if(!o||o.a!=="gept-mid"||!isObj(o.d)) throw new Error("備份內容不正確");
+    if(o.k!==crcHex(utf8(JSON.stringify(o.d)))) throw new Error("資料檢查碼不符，備份可能已損毀");
+  }
+  const code=normCode(o.c); if(!code) throw new Error("備份中的個人代碼不正確");
+  const data=sanitize(o.d); if(!data) throw new Error("備份中的進度資料不正確");
+  return {code,t:+o.t||0,data};
+}
+async function applyBackup(text){
+  const b=await parseBackup(text);
+  const local=readRec(b.code);
+  if(CUR&&CUR!==b.code) save();
+  let rec, merged=false;
+  if(local){
+    merged=true; rec=local;
+    rec.data=mergeProgress({data:local.data,t:local.savedAt||0},{data:b.data,t:b.t});
+    store.set(PK+b.code,JSON.stringify(rec));
+  } else {
+    rec=newRec(b.code,b.data); rec.savedAt=Date.now();
+    store.set(PK+b.code,JSON.stringify(rec));
+  }
+  openProfile(b.code,rec); save();
+  return {code:b.code,merged};
+}
+function markBackup(){ if(REC){REC.backupAt=Date.now();REC.snooze=0;save();} }
+async function copyText(t){
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(t);return true;} }catch(e){}
+  try{const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();const ok=document.execCommand("copy");ta.remove();return ok;}catch(e){return false;}
+}
+function readFileText(f){ return f.text?f.text():new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsText(f);}); }
+
+/* ---------- 畫面 ---------- */
+const lg={mode:"home",code:null};
+function loginShell(inner){
+  $app.className="immersive"; $nav.style.display="none";
+  $app.innerHTML=inner;
+}
+function setMsg(id,html,ok){const el=document.getElementById(id);if(el){el.className="amsg "+(ok?"ok":"bad");el.innerHTML=html;}}
+function legacyNote(){
+  const d=legacyData(); if(!d) return "";
+  return `<div class="card lead"><b>📦 偵測到這台裝置的舊進度</b><p class="mut">共 ${Object.keys(d.cards).length} 張單字卡紀錄、學習 ${d.days.length} 天。建立第一個新帳號時，會自動把這些進度帶進去。</p></div>`;
+}
+function viewLogin(){
+  if(lg.mode==="new") return viewCreate();
+  if(lg.mode==="restore") return viewRestore(false);
+  loginShell(`<div class="card hero center"><div class="big-em">🎓</div><h1>全民英檢中級 備考</h1><p class="mut">用一組個人代碼保存學習進度。不需要密碼，也不需要信箱。</p></div>
+  ${legacyNote()}
+  <button class="btn block" data-act="acNew">✨ 建立新帳號</button>
+  <div class="card"><h3 style="margin-top:0">🔑 用代碼登入</h3><p class="mut">輸入你的個人代碼（大小寫、有沒有橫線都可以）。</p>
+   <input id="lgcode" class="ainput" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH-JKMN-PQRS" maxlength="24">
+   <button class="btn block mt" data-act="acLogin">登入</button><div id="lgmsg" class="amsg"></div></div>
+  <div class="card"><h3 style="margin-top:0">📥 從備份還原</h3><p class="mut">換了手機或電腦？貼上備份代碼，或選擇備份檔，就能把進度帶過來。</p><button class="btn sec block" data-act="acRestoreView">還原備份</button></div>
+  <p class="mut center">這台裝置目前有 ${IDX.codes.length} 個帳號檔案。</p>
+  <p class="mut">帳號資料只儲存在你的瀏覽器裡，沒有上傳到任何伺服器。同一台裝置可以有很多個帳號；換裝置時請用備份代碼或備份檔。</p>`);
+  const inp=document.getElementById("lgcode"); if(inp) inp.addEventListener("keydown",e=>{if(e.key==="Enter")acctClick("acLogin",inp);});
+}
+function viewCreate(){
+  if(!lg.code) lg.code=genCode();
+  loginShell(`<a class="back" href="#/home" data-act="acHome">‹ 返回</a><h1>你的個人代碼</h1>
+  <div class="card center codebox"><div class="mut">這是你的專屬代碼</div><div class="code" id="codeshow" lang="en">${lg.code}</div>
+   <button class="btn block" data-act="acCopy" data-t="${lg.code}">📋 複製代碼</button><div id="cpmsg" class="amsg"></div></div>
+  <div class="card warnbox"><b>⚠️ 請現在就把代碼存起來</b>
+   <p>可以截圖、抄在紙上，或傳給自己。這個帳號沒有密碼，<b>代碼就是唯一的鑰匙</b>：</p>
+   <ul><li>弄丟代碼，就無法再登入這個帳號。</li><li>清除瀏覽器資料會刪掉這台裝置上的進度，所以請定期到「帳號」頁做備份。</li><li>知道代碼又有你備份的人，就能還原你的進度，請不要公開分享。</li></ul>
+   <label class="chk"><input type="checkbox" id="saved"><span>我已經把代碼存好了</span></label></div>
+  ${legacyNote()}
+  <button class="btn block" id="startbtn" data-act="acStart" disabled>開始使用</button><div id="lgmsg" class="amsg"></div>`);
+  const cb=document.getElementById("saved"), bt=document.getElementById("startbtn");
+  cb.addEventListener("change",()=>{bt.disabled=!cb.checked;});
+}
+function viewRestore(inProfile){
+  const inner=`<h3 style="margin-top:0">📥 還原備份</h3><p class="mut">貼上備份代碼（G1. 開頭），或選擇備份檔（.json）。如果這台裝置已有相同代碼的帳號，進度會合併（每一項取較新或較大的）；沒有的話會建立新帳號。還原後會自動登入該代碼。</p>
+   <textarea id="rstext" class="atext" lang="en" spellcheck="false" placeholder="G1.d...."></textarea>
+   <button class="btn block mt" data-act="acRestore">還原貼上的備份代碼</button>
+   <div class="mt"><label class="btn sec block" for="bkfile" style="cursor:pointer">📂 選擇備份檔（.json）</label><input id="bkfile" type="file" accept=".json,.txt,application/json,text/plain" style="display:none"></div>
+   <div id="rsmsg" class="amsg"></div>`;
+  if(inProfile) return inner;
+  loginShell(`<a class="back" href="#/home" data-act="acHome">‹ 返回</a><h1>還原備份</h1><div class="card">${inner}</div>`);
+}
+function viewProfile(){
+  setNav("home");
+  const size=(JSON.stringify(REC).length/1024).toFixed(1), bkAge=REC.backupAt?daysSince(REC.backupAt)+" 天前（"+fmtClock(REC.backupAt)+"）":"還沒有備份過";
+  const canShare=typeof navigator!=="undefined"&&typeof navigator.share==="function";
+  $app.innerHTML=`<a class="back" href="#/home">‹ 首頁</a><h1>👤 帳號與備份</h1>
+  ${saveErr?`<div class="card warnbox"><b>⚠️ 目前無法寫入瀏覽器儲存空間</b><p>請立刻下載備份檔，避免進度遺失。</p></div>`:""}
+  <div class="card center codebox"><div class="mut">目前登入的個人代碼</div><div class="code" lang="en">${CUR}</div>
+   <button class="btn block" data-act="acCopy" data-t="${CUR}">📋 複製代碼</button><div id="cpmsg" class="amsg"></div>
+   <p class="mut">上次儲存：<b id="lastsave">${fmtClock(REC.savedAt)}</b>（每次作答或學習都會自動儲存）<br>上次備份：${bkAge}<br>此帳號佔用約 ${size} KB，本機共有 ${IDX.codes.length} 個帳號</p></div>
+  ${bkBanner()}
+  <div class="card"><h3 style="margin-top:0">💾 備份代碼</h3><p class="mut">把進度壓縮成一串文字，可以貼到筆記、訊息或信件裡，在別的裝置貼回來還原。</p>
+   <button class="btn block" data-act="acGen">產生備份代碼</button>
+   <div id="bkout"></div></div>
+  <div class="card"><h3 style="margin-top:0">📄 備份檔</h3><p class="mut">下載成 .json 檔案保存；要還原時在下方選擇這個檔案。</p>
+   <div class="row"><button class="btn sec" data-act="acDownload">⬇️ 下載備份檔</button>${canShare?`<button class="btn sec" data-act="acShare">📤 分享備份</button>`:""}</div><div id="dlmsg" class="amsg"></div></div>
+  <div class="card">${viewRestore(true)}</div>
+  <div class="card"><h3 style="margin-top:0">🔁 登出與切換</h3><p class="mut">登出後可以用代碼登入其他帳號，或建立新帳號。登出前請確認你已經保存代碼。</p>
+   <button class="btn warn block" data-act="acLogout">登出 / 切換帳號</button></div>
+  <div class="card"><h3 style="margin-top:0">🗑️ 危險操作</h3>
+   <button class="btn ghost block" data-act="reset">重置這個帳號的學習進度</button>
+   <button class="btn ghost block mt" data-act="acDelete">從這台裝置刪除這個帳號</button></div>`;
+}
+let bkStr="";
+async function acctClick(a,el){
+  switch(a){
+  case "acNew": lg.mode="new"; lg.code=genCode(); viewLogin(); return true;
+  case "acHome": lg.mode="home"; lg.code=null; viewLogin(); return true;
+  case "acRestoreView": lg.mode="restore"; viewLogin(); return true;
+  case "acCopy": { const ok=await copyText(el.dataset.t); setMsg("cpmsg",ok?"已複製到剪貼簿":"無法自動複製，請長按代碼手動複製",ok); return true; }
+  case "acStart": {
+    try{ const leg=legacyData(); createProfile(lg.code,leg||blank(),!!leg); }
+    catch(e){ setMsg("lgmsg","無法把帳號儲存到這個瀏覽器（儲存空間不可用）。請關閉無痕模式後再試。",false); return true; }
+    lg.mode="home"; lg.code=null; go("#/home"); if(location.hash==="#/home") route(); return true; }
+  case "acLogin": {
+    const inp=document.getElementById("lgcode"), code=normCode(inp&&inp.value);
+    if(!code){ setMsg("lgmsg","代碼格式不正確。代碼有 16 個字元（英文字母與數字，沒有 0、1、I、L、O），例如 ABCD-EFGH-JKMN-PQRS。",false); return true; }
+    const rec=readRec(code);
+    if(!rec){ document.getElementById("lgmsg").className="amsg bad"; document.getElementById("lgmsg").innerHTML=`這台裝置上找不到這個代碼的資料。代碼不會把進度存在網路上；如果進度在別的裝置，請先在原裝置到「帳號」頁產生備份代碼，再回到這裡用「還原備份」。<br><button class="btn sec sm mt" data-act="acEmpty" data-c="${code}">用這個代碼建立空白帳號</button>`; return true; }
+    openProfile(code,rec); go("#/home"); if(location.hash==="#/home") route(); return true; }
+  case "acEmpty": {
+    try{ createProfile(el.dataset.c,blank(),false); }catch(e){ setMsg("lgmsg","無法儲存到這個瀏覽器。",false); return true; }
+    go("#/home"); if(location.hash==="#/home") route(); return true; }
+  case "acRestore": {
+    const t=document.getElementById("rstext").value;
+    try{ const r=await applyBackup(t); toast(r.merged?"已合併進度並登入":"已還原並登入"); lg.mode="home"; go("#/home"); if(location.hash==="#/home") route(); }
+    catch(e){ setMsg("rsmsg","還原失敗：".concat(esc(e.message||e)),false); }
+    return true; }
+  case "acLogout": if(confirm("確定要登出嗎？請先確認你已經保存個人代碼："+CUR)){ logout(); lg.mode="home"; go("#/home"); if(location.hash==="#/home") route(); } return true;
+  case "acDelete":
+    if(confirm("這會從這台裝置刪除帳號 "+CUR+" 的所有進度。若沒有備份就無法復原。確定嗎？")&&confirm("再確認一次：真的要刪除嗎？")){
+      const c=CUR; logout(); store.del(PK+c); store.del(PK+c+":bak"); IDX.codes=IDX.codes.filter(x=>x!==c); writeIdx(); go("#/home"); if(location.hash==="#/home") route(); }
+    return true;
+  case "acGen": {
+    try{ bkStr=await makeBackupString(); markBackup(); }catch(e){ setMsg("dlmsg","產生失敗："+esc(e.message||e),false); return true; }
+    const canShare=typeof navigator.share==="function";
+    document.getElementById("bkout").innerHTML=`<textarea id="bkstr" class="atext" lang="en" readonly>${bkStr}</textarea><p class="mut">長度 ${bkStr.length} 字元。請完整複製，貼到安全的地方。</p>
+     <div class="row"><button class="btn sec" data-act="acCopyBk">📋 複製</button>${canShare?`<button class="btn sec" data-act="acShare">📤 分享</button>`:""}</div><div id="cpmsg2" class="amsg"></div>`;
+    return true; }
+  case "acCopyBk": { const ok=await copyText(bkStr); setMsg("cpmsg2",ok?"已複製備份代碼":"無法自動複製，請長按文字框手動複製",ok); return true; }
+  case "acDownload": {
+    const blob=new Blob([makeBackupJson()],{type:"application/json"}), url=URL.createObjectURL(blob), aEl=document.createElement("a");
+    const d=new Date(), p=n=>String(n).padStart(2,"0");
+    aEl.href=url; aEl.download="gept-backup-"+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+".json"; document.body.appendChild(aEl); aEl.click(); aEl.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),2000); markBackup(); setMsg("dlmsg","已下載備份檔。請把檔案存在安全的地方。",true); return true; }
+  case "acShare": {
+    try{ if(!bkStr) bkStr=await makeBackupString(); await navigator.share({title:"英檢中級備份代碼",text:bkStr}); markBackup(); setMsg("dlmsg","已開啟分享",true); }
+    catch(e){ if(e&&e.name!=="AbortError") setMsg("dlmsg","無法分享："+esc(e.message||e),false); }
+    return true; }
+  case "bkSnooze": if(REC){REC.snooze=Date.now()+DAY;save();} route(); return true;
+  }
+  return false;
+}
+document.addEventListener("change",async e=>{
+  if(!e.target||e.target.id!=="bkfile"||!e.target.files||!e.target.files[0]) return;
+  try{ const r=await applyBackup(await readFileText(e.target.files[0])); toast(r.merged?"已合併進度並登入":"已還原並登入"); lg.mode="home"; go("#/home"); if(location.hash==="#/home") route(); }
+  catch(err){ setMsg("rsmsg","還原失敗："+esc(err.message||err),false); }
+  e.target.value="";
+});
+window.addEventListener("storage",e=>{
+  if(!e.key||e.key.indexOf("gept:")!==0) return;
+  if(CUR&&e.key===PK+CUR&&e.newValue){ try{ const r=JSON.parse(e.newValue); const d=sanitize(r.data); if(d){ REC=r; S=d; toast("其他分頁更新了進度，已同步"); } }catch(x){} }
+});
+window.addEventListener("pagehide",()=>{ if(CUR) save(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden"&&CUR) save(); });
+initAccount();
+
 function streak(){
   const set=new Set(S.days); let d=new Date(), n=0;
   if(!set.has(ymd(d))) d.setDate(d.getDate()-1);
@@ -365,6 +772,8 @@ function route(){
   const h=(location.hash||"#/home").replace(/^#\/?/,"").split("/");
   const r=h[0]||"home";
   window.scrollTo(0,0);
+  if(!CUR) return viewLogin();
+  if(r==="profile") return viewProfile();
   if(r==="home") return viewHome();
   if(r==="units") return viewUnits();
   if(r==="unit"&&UNIT[h[1]]) return viewUnit(UNIT[h[1]]);
@@ -408,6 +817,8 @@ function viewHome(){
     <h1>全民英檢中級 備考 🎓</h1>
     <p class="mut">目標程度約 CEFR B1。${total} 個單字、${MID_LESSONS.length} 課文法教學、閱讀、聽力、寫作與口說，一次練習。</p>
   </div>
+  ${bkBanner()}
+  <div class="card unit acbar" data-act="nav" data-h="#/profile"><div class="ic">👤</div><div class="mid"><b lang="en">${CUR}</b><span class="mut">已儲存 <span id="lastsave">${fmtClock(REC.savedAt)}</span> · 點此管理帳號與備份</span></div><span class="go">›</span></div>
   <div class="stats">
     <div class="stat"><b>🔥 ${st}</b><span>連續學習天數</span></div>
     <div class="stat"><b>${learned}<small style="font-size:.85rem;color:var(--mut)"> / ${total}</small></b><span>已學會單字</span></div>
@@ -435,7 +846,7 @@ function viewHome(){
   <div class="row mt"><a class="btn warn" href="#/exam">⏱️ 20 分鐘模擬考</a><a class="btn sec" href="#/gept">🎓 分項練習</a></div>
   <h2>單元進度</h2>
   ${GROUPS.map(g=>{const ws=groupWords(g), l=learnedCount(ws.map(w=>w.id));return `<div class="card unit" data-act="nav" data-h="#/units"><div class="ic">${g[0]}</div><div class="mid"><b>${esc(g[1])}</b><div class="bar g" style="margin-top:6px"><i style="width:${l*100/ws.length}%"></i></div></div><span class="mut">${l}/${ws.length}</span></div>`;}).join("")}
-  <p class="center mut mt" style="margin-top:22px">進度只存在這台裝置的瀏覽器中。<br><button class="btn ghost sm" data-act="reset">清除所有進度</button></p>`;
+  <p class="center mut mt" style="margin-top:22px">進度存在這台裝置的瀏覽器中，並以個人代碼區分帳號。換裝置請用備份代碼還原。<br><a class="btn ghost sm" href="#/profile">帳號與備份</a></p>`;
 }
 
 /* ============================ 單字卡 ============================ */
@@ -514,7 +925,7 @@ function viewCards(){
   }
   if(cs.queue.length===0){
     $app.innerHTML=`<div class="top"><button class="x" data-act="nav" data-h="${cs.back}">✕</button><div class="bar"><i style="width:100%"></i></div></div>
-    <div class="card center"><div class="big-em">🌟</div><h2>太棒了，這一輪完成！</h2><p class="mut">共 ${cs.n} 張卡片${cs.again?"，其中有 "+cs.again+" 次按了「還在學」":""}。</p>
+    ${bkBanner()}<div class="card center"><div class="big-em">🌟</div><h2>太棒了，這一輪完成！</h2><p class="mut">共 ${cs.n} 張卡片${cs.again?"，其中有 "+cs.again+" 次按了「還在學」":""}。</p>
     <div class="row mt">${cs.after}</div></div>`;
     return;
   }
@@ -703,7 +1114,7 @@ function viewResult(){
   const s=sess, n=s.qs.length, p=s.pct;
   const em=p>=90?"🏆":p>=70?"🌟":p>=50?"💪":"🌱";
   const msg=p>=90?"太厲害了！":p>=70?"很不錯，繼續加油！":p>=50?"有進步，再練習一下會更好。":"沒關係，錯的題目會收進錯題本，慢慢來。";
-  $app.innerHTML=`<div class="card center"><div class="big-em">${em}</div><div class="score">${s.c} / ${n}</div><p><b>${p}%</b> ${msg}</p>
+  $app.innerHTML=`${bkBanner()}<div class="card center"><div class="big-em">${em}</div><div class="score">${s.c} / ${n}</div><p><b>${p}%</b> ${msg}</p>
   ${s.kind==="review"?`<p class="mut">錯題本還剩 ${S.wrong.length} 題</p>`:""}
   <div class="row mt"><button class="btn" data-act="nav" data-h="${s.retry}">再來一次</button>${(s.kind!=="review"&&s.wrongIds.length)?`<button class="btn warn" data-act="nav" data-h="#/rq">複習錯題</button>`:""}</div>
   <div class="row mt"><button class="btn sec" data-act="nav" data-h="${s.back}">返回</button><button class="btn sec" data-act="nav" data-h="#/home">回首頁</button></div></div>`;
@@ -875,7 +1286,7 @@ function viewExamReport(){
   const rows=[["sent_vocab","詞彙"],["sent_grammar","文法"],["cloze","段落填空"],["read","閱讀測驗"],["listen","聽力測驗"]];
   const weak=rows.filter(r=>b[r[0]]&&b[r[0]].t>=1&&pct(b[r[0]].c,b[r[0]].t)<70).sort((x,y)=>pct(b[x[0]].c,b[x[0]].t)-pct(b[y[0]].c,b[y[0]].t));
   const em=s.pct>=80?"🏆":s.pct>=60?"🌟":"💪";
-  $app.innerHTML=`<h1>📊 模擬考成績單</h1>
+  $app.innerHTML=`${bkBanner()}<h1>📊 模擬考成績單</h1>
   <div class="card center"><div class="big-em">${em}</div><div class="score">${s.pct}%</div><p>答對 ${s.c} / ${s.qs.length} 題　·　用時約 ${mins} 分鐘</p>
    <p class="mut">${s.pct>=80?"表現很好，已接近中級初試的通過水準。":s.pct>=60?"接近及格水準，補強弱項就能更穩。":"還有進步空間，先從下面的弱項開始。"}（僅為練習參考，不代表官方成績）</p></div>
   <div class="card"><h3 style="margin-top:0">各部分表現</h3>${rows.filter(r=>b[r[0]]).map(r=>{const o=b[r[0]],p=pct(o.c,o.t);return `<div class="secrow"><div class="n">${r[1]}</div><div class="bar ${p>=70?"g":"o"}"><i style="width:${p}%"></i></div><div class="p">${o.c}/${o.t}（${p}%）</div></div>`;}).join("")}</div>
@@ -946,6 +1357,7 @@ document.addEventListener("click",e=>{
   const el=e.target.closest("[data-act]"); if(!el) return;
   const a=el.dataset.act;
   if(a==="chk") return;
+  if(a.indexOf("ac")===0||a==="bkSnooze"){ acctClick(a,el).catch(err=>toast("發生錯誤："+(err&&err.message||err))); return; }
   if(a==="say"){ e.stopPropagation(); speak(el.dataset.t); return; }
   if(a==="nav"){ go(el.dataset.h); return; }
   if(a==="flip"){ if(cs){cs.flip=!cs.flip; viewCards();} return; }
@@ -975,7 +1387,7 @@ document.addEventListener("click",e=>{
   if(a==="showSp"){ document.getElementById("modelbox").innerHTML=`<h3>範例回答</h3><div class="model" lang="en">${esc(spCtx.model)}</div><button class="btn sec sm" data-act="say" data-t="${esc(spCtx.model)}">🔊 聽範例回答</button>`; el.style.display="none"; return; }
   if(a==="markDone"){ S.prod[writeCtx.id]=true; touch(); toast("已標記完成"); go("#/write"); return; }
   if(a==="markSp"){ S.prod["s"+el.dataset.i]=true; touch(); toast("已標記完成"); go("#/speak"); return; }
-  if(a==="reset"){ if(confirm("確定要清除所有學習進度嗎？")){ S=blank(); memStore=null; try{localStorage.removeItem(KEY);localStorage.removeItem(OLDKEY);}catch(x){} viewHome(); } return; }
+  if(a==="reset"){ if(confirm("確定要清除這個帳號的所有學習進度嗎？此動作無法復原。")){ S=blank(); save(); toast("已重置進度"); go("#/home"); route(); } return; }
   if(a==="goal"){ S.goal=+el.dataset.n; save(); viewHome(); return; }
   if(a==="bonus"){ dailyState().bonus=(dailyState().bonus||0)+10; save(); startToday(); return; }
   if(a==="wmore"){ wf.n+=60; document.getElementById("wlist").innerHTML=wordRowsHtml(); return; }
