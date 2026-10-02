@@ -394,6 +394,16 @@ select.sel{border:2px solid var(--bd);border-radius:12px;padding:8px 10px;font:i
 .lessonrow>div:last-child{display:flex;gap:2px;flex:none}
 .lessonrow>div:last-child .ico{width:18px;height:18px;color:#e6d3db}
 .lessonrow>div:last-child .ico.on{color:#ffb62e;fill:#ffd36b}
+.gloss{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:8px 0 2px;min-height:0}
+.gloss:empty{display:none}
+.gl{display:inline-flex;flex-direction:column;align-items:center;line-height:1.25;background:var(--p50);border:1px solid var(--p100);border-radius:12px;padding:3px 10px;transition:background .15s,border-color .15s,transform .15s}
+.gl b{font-family:var(--font-en);font-size:.88rem;color:var(--p800)}
+.gl i{font-style:normal;font-size:.78rem;color:var(--mut)}
+.gl.on{background:var(--p100);border-color:var(--p400);transform:translateY(-2px);box-shadow:0 4px 10px rgba(225,69,127,.18)}
+.gl.on i{color:var(--p700);font-weight:700}
+.gl.bad{background:var(--bad-l);border-color:var(--bad-b)}
+.gloss.big .gl b{font-size:.95rem}.gloss.big .gl i{font-size:.84rem}
+.glnote{flex-basis:100%;text-align:center;font-size:.74rem;color:var(--mut)}
 
 </style>
 </head>
@@ -512,6 +522,9 @@ const SND={key(){tone(480+T.rand()*80,.035,"triangle",.045);},err(){tone(150,.14
 function say(t){if(!P||!P.set.voice||!("speechSynthesis" in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang="en-US";u.rate=.9;const vs=speechSynthesis.getVoices?speechSynthesis.getVoices():[];const v=vs.find(v=>/^en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang));if(v)u.voice=v;speechSynthesis.speak(u);}catch(e){}}
 /* ---------- 單字池 ---------- */
 const WORDS=WD.map((a,i)=>({i,en:a[0],pos:a[1],zh:a[2],ex:a[3],exZh:a[4],lv:a[5],biz:a[6]===1,k:a[0].toLowerCase()}));
+const GLOSS={};WORDS.forEach(w=>{if(!GLOSS[w.k]&&/^[a-z][a-z'-]*$/.test(w.k))GLOSS[w.k]=w.zh;});
+function shortZh(z){z=String(z||"").replace(/（[^）]*）/g,"").replace(/\([^)]*\)/g,"").split(/[；;，,]/)[0].trim();return z.length>12?z.slice(0,11)+"…":z;}
+function autoGloss(text,max){const out=[],seen={};const re=/[A-Za-z][A-Za-z'-]*/g;let m;while((m=re.exec(text))){const k=m[0].toLowerCase();if(GLOSS[k]&&!seen[k]){seen[k]=1;out.push({s:m.index,e:m.index+m[0].length,en:m[0],zh:GLOSS[k]});if(max&&out.length>=max)break;}}return out;}
 const isSingle=w=>/^[A-Za-z][A-Za-z'-]*$/.test(w.en);
 const isTypable=s=>/^[\x20-\x7E]+$/.test(s);
 function pool(opts){opts=opts||{};const lv=P.set.levels.map(l=>({b:0,m:1,e:2}[l]));
@@ -626,7 +639,7 @@ function addHist(mode,s){P.hist.push({t:Date.now(),mode,wpm:s.wpm,acc:s.acc});if
 function bestSet(key,val,lowerBetter){const o=P.best[key];if(o==null||(lowerBetter?val<o:val>o)){P.best[key]=val;return true;}return false;}
 function wordDone(w,clean,el){ // 記錄單字練習結果
   const s=wstat(w.k);s.last=Date.now();
-  if(clean){s.ok++;s.streak++;if(P.wb[w.k]){P.wb[w.k].clean=(P.wb[w.k].clean||0)+1;if(P.wb[w.k].clean>=2){delete P.wb[w.k];toast("「"+w.en+"」已從錯字本移除");}}}
+  if(clean){s.ok++;s.streak++;if(P.wb[w.k]){P.wb[w.k].clean=(P.wb[w.k].clean||0)+1;if(P.wb[w.k].clean>=2){delete P.wb[w.k];toast("「"+w.en+"」"+shortZh(w.zh)+" 已從錯字本移除");}}}
   else{s.bad++;s.streak=0;const o=P.wb[w.k]||(P.wb[w.k]={n:0,clean:0});o.n++;o.clean=0;}
   dayTick();P.daily.words++;P.tot.words++;}
 /* ---------- 全域輸入：keydown + input + IME 偵測 ---------- */
@@ -723,7 +736,6 @@ ROUTES.home=function(a,v){dayTick();save();
   <p class="srcnote">打字資料存在這台裝置的瀏覽器，與主 App 的備份碼分開，請在「設定」匯出備份。</p>`;
   ACT=null;};
 /* ===================== 課程 ===================== */
-const EXTRA="sad dad lad ask fall flask glass salad flash shall lass gas has had hall add ads jag hag gal sag flag slag kid did lid kiss sill silk dill fill skid dig dish fish gift sift jilt hijack elf elk else led fed ref red her herd here fee feed see seed side life like file fire rule rude tree true tie tire rip rid roof root trip trap top toy yet yes you your why try put pot pet pit pie pay wish with wipe wide wire wood word work zip zoo zone zero zinc box fix mix six next text exam example cab can car cash cave clap clip club cut cup cute move more mind moon name nine note nice never new now not van vet very view visit voice back bank base bed beach bell best bike bird blue boat book born bus buy".split(" ");
 const LESSONS=[
  {id:1,st:1,name:"食指基本鍵",keys:"fjdk",nk:"fjdk",wpm:8},
  {id:2,st:1,name:"基本列左右手",keys:"asdfjkl;",nk:"asl;",wpm:10},
@@ -738,16 +750,16 @@ const LESSONS=[
  {id:11,st:4,name:"常用標點符號",keys:"",nk:"",wpm:24,kind:"punct"},
  {id:12,st:4,name:"完整句子畢業考",keys:"",nk:"",wpm:28,kind:"sent"}];
 const STAGES={1:"第一階段：基本列",2:"第二階段：上列",3:"第三階段：下列",4:"第四階段：Shift、數字與標點"};
-const PUNCT=["yes!","why?","it's","don't","well-known","a, b, c.","Hi, Tom.","Go!","Really?","I'm ok.","Don't stop.","five-star","Wait, what?","That's all.","No way!","Let's go.","two-way","(ok)","\"hi\"","Mr. Lee","cost: $5","50% off","A & B","email@me","1+1=2","Yes; no."];
-const NAMES=["Amy","Ben","Cathy","David","Emma","Frank","Grace","Henry","Ivy","Jack","Kelly","Leo","Mia","Noah","Olivia","Peter","Rose","Sam","Tina","Vicky","Will","Zoe","Taipei","Tokyo","London","Monday","Friday","April","English"];
+const PZ={"yes!":"是的！","why?":"為什麼？","it's":"它是（it is 的縮寫）","don't":"不要（do not 的縮寫）","well-known":"著名的","a, b, c.":"A、B、C（字母）","Hi, Tom.":"嗨，湯姆。","Go!":"加油！出發！","Really?":"真的嗎？","I'm ok.":"我沒事。","Don't stop.":"不要停。","five-star":"五星級的","Wait, what?":"等等，什麼？","That's all.":"就這樣。","No way!":"不可能！","Let's go.":"我們走吧。","two-way":"雙向的","(ok)":"（好的）","\"hi\"":"「嗨」","Mr. Lee":"李先生","cost: $5":"費用：5 美元","50% off":"打五折","A & B":"A 和 B","email@me":"電子郵件地址","1+1=2":"一加一等於二","Yes; no.":"是；不是。"};
+const PUNCT=Object.keys(PZ);
 function lessonLines(L){const lines=[];
   const allowed=L.keys;
   let cand=[];
-  if(L.kind==="cap"){cand=WORDS.filter(w=>isSingle(w)&&w.en.length<=7&&/^[a-z]+$/.test(w.en)).map(w=>w.en[0].toUpperCase()+w.en.slice(1)).concat(NAMES);}
+  if(L.kind==="cap"){cand=WORDS.filter(w=>isSingle(w)&&w.en.length<=7&&/^[a-z]+$/.test(w.en)).map(w=>w.en[0].toUpperCase()+w.en.slice(1));}
   else if(L.kind==="sent"){const sp=WORDS.filter(w=>isTypable(w.ex)&&w.ex.length>=30&&w.ex.length<=70);return shuf(sp).slice(0,4).map(w=>w.ex);}
   else if(L.kind==="punct"){cand=PUNCT;}
   else if(L.kind==="num"){cand=[];}
-  else{const A=new Set(allowed.split(""));cand=WORDS.map(w=>w.en).filter(w=>/^[a-z]+$/.test(w)&&w.length>=3&&w.length<=7&&w.split("").every(c=>A.has(c))).concat(EXTRA.filter(w=>w.split("").every(c=>A.has(c))));}
+  else{const A=new Set(allowed.split(""));cand=WORDS.map(w=>w.en).filter(w=>/^[a-z]+$/.test(w)&&w.length>=3&&w.length<=7&&w.split("").every(c=>A.has(c)));}
   cand=Array.from(new Set(cand));
   const nk=(L.nk||allowed).split("");const base=allowed.split("");
   for(let i=0;i<4;i++){const parts=[];let len=0;
@@ -758,6 +770,12 @@ function lessonLines(L){const lines=[];
       parts.push(t);len+=t.length+1;}
     lines.push(parts.join(" "));}
   return lines;}
+function sentGloss(w){const g=autoGloss(w.ex,10);const m=new RegExp("(^|[^A-Za-z'-])("+w.en.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"[A-Za-z]*)","i").exec(w.ex);
+  if(m){const s=m.index+m[1].length,e=s+m[2].length;if(!g.some(x=>x.s<e&&x.e>s)){g.push({s,e,en:m[2],zh:w.zh});g.sort((x,y)=>x.s-y.s);}}return g;}
+function punctGloss(t){const out=[];PUNCT.slice().sort((x,y)=>y.length-x.length).forEach(p=>{let i=-1;while((i=t.indexOf(p,i+1))>=0){const b=i===0||t[i-1]===" ",e2=i+p.length===t.length||t[i+p.length]===" ";if(b&&e2&&!out.some(o=>i<o.e&&i+p.length>o.s))out.push({s:i,e:i+p.length,en:p,zh:PZ[p]});}});return out.sort((x,y)=>x.s-y.s);}
+function lessonItems(L){
+  if(L.kind==="sent"){const sp=WORDS.filter(w=>isTypable(w.ex)&&w.ex.length>=30&&w.ex.length<=70);return shuf(sp).slice(0,4).map(w=>({text:w.ex,exZh:w.exZh,gl:sentGloss(w)}));}
+  return lessonLines(L).map(t=>({text:t,gl:L.kind==="punct"?punctGloss(t):autoGloss(t,12),note:L.kind!=="punct"&&L.kind!=="cap"}));}
 function lessonOpen(id){if(id<=1)return true;const p=P.stages[id-1];return !!(p&&p.done);}
 ROUTES.lessons=function(a,v){ACT=null;
   let h=`<div class="hero"><h1>盲打課程</h1><p class="mut">每課正確率 95% 以上並達到目標字速，才能解鎖下一課。</p></div>`;
@@ -768,10 +786,12 @@ ROUTES.lessons=function(a,v){ACT=null;
 ROUTES.lesson=function(a,v){const L=LESSONS.find(l=>l.id==+a);if(!L||!lessonOpen(L.id)){go("lessons");return;}
   modeIntro(v,{title:"第 "+L.id+" 課　"+L.name,sub:STAGES[L.st],filter:false,
    how:["照著畫面上的字，用正確的手指打出來。","正確率要 ≥ 95%，字速要達到 "+L.wpm+" WPM 才算通過。","建議先看「手指與姿勢」，再試試盲打模式。"+(L.keys&&L.kind!=="cap"&&L.kind!=="punct"&&L.kind!=="sent"?"本課使用的鍵："+esc(L.keys.split("").join(" ")):"")],
-   start(){startDrill({mode:"lesson",title:"第 "+L.id+" 課　"+L.name,lesson:L,items:lessonLines(L).map(t=>({text:t})),goal:L})}});};
+   start(){startDrill({mode:"lesson",title:"第 "+L.id+" 課　"+L.name,lesson:L,items:lessonItems(L),goal:L})}});};
 /* ===================== 通用練習器 ===================== */
+function seenHtml(list){const m={},arr=[];list.forEach(x=>{const k=x.en.toLowerCase();if(!m[k]){m[k]=x;arr.push(x);}else if(x.bad)m[k].bad=true;});if(!arr.length)return "";
+  return `<div class="card"><h3>${ico("list-checks")} 這回出現的單字</h3><div class="gloss big">${arr.slice(0,60).map(x=>`<span class="gl${x.bad?" bad":""}"><b lang="en">${esc(x.en)}</b><i>${esc(x.zh)}</i></span>`).join("")}</div>${arr.some(x=>x.bad)?`<p class="mut" style="font-size:.8rem;margin:6px 0 0">粉紅色框代表這回打錯過。</p>`:""}</div>`;}
 function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],timeLimit,lesson
-  const view=$("#view");const S={runs:0,correct:0,keys:0,errs:0,ms:0,words:0,cleanWords:0,combo:0,maxCombo:0,score:0,i:0,sessionXp:0,racing:false};
+  const view=$("#view");const S={runs:0,correct:0,keys:0,errs:0,ms:0,words:0,cleanWords:0,combo:0,maxCombo:0,score:0,i:0,sessionXp:0,racing:false,seen:[]};
   let items=cfg.items.slice(),run=null,showEx=false,exTimer=null,timer=null,left=cfg.timeLimit||0,raceIdx=[],raceMis={},ended=false;
   const race=cfg.mode==="race";
   const hide=cfg.mode==="spell";
@@ -785,6 +805,7 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
     <div class="bar" style="margin:4px 0 10px"><i id="progbar" style="width:0%"></i></div>
     <div class="zhline" id="zh"></div>
     <div class="target${cfg.mode==="word"||hide?" big":""}" id="target" lang="en" aria-live="off"></div>
+    <div class="gloss" id="gloss"></div>
     <div id="exbox"></div>
     <div id="kbhost"></div>
     ${touch?`<div class="focusveil on" id="veil">${ico("keyboard","xl")}<div>點一下這裡叫出鍵盤開始打字</div></div>`:""}
@@ -795,7 +816,7 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
   function setItem(){clearTimeout(exTimer);showEx=false;$("#exbox").innerHTML="";const it=curItem();
     if(!race)run=mkRun(it.text);
     const zh=$("#zh");
-    if(cfg.mode==="lesson"){zh.innerHTML="";}
+    if(cfg.mode==="lesson"){zh.innerHTML=it.exZh?`<small style="font-size:1rem">${esc(it.exZh)}</small>`:"";}
     else if(race){zh.innerHTML="";}
     else if(sentenceMode)zh.innerHTML=`<small style="font-size:1rem">${esc(it.exZh||"")}</small>`;
     else {zh.innerHTML=`${esc(it.zh||"")}<small>${esc(it.pos||"")}${it.w?` ${tagsHtml(it.w)}`:""}</small>`;}
@@ -814,9 +835,17 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
       let h="";for(let i=0;i<run.text.length;i++){const c=run.text[i];let cls="ch hid"+(c===" "?" sp":"");if(i<run.pos)cls+=(run.typed[i]===c?" ok":" bad");else if(i===run.pos)cls+=" cur";
         const show=i<run.pos||(hintLvl>=1&&i===run.pos);h+=`<span class="${cls}">${show?esc(i<run.pos&&run.typed[i]!==c?run.typed[i]:c):"&nbsp;"}</span>`;}
       t.innerHTML=h;}
+    drawGloss();
     const nx=run.text[run.pos];const wrong=lastWrong;
     if(!run.done)kbShowNext(nx==null?null:nx,wrong);lastWrong=false;}
   let hintLvl=0,lastWrong=false;
+  function chip(en,zh,on){return `<span class="gl${on?" on":""}"><b lang="en">${esc(en)}</b><i>${esc(shortZh(zh))}</i></span>`;}
+  function drawGloss(){const g=$("#gloss");if(!g||!run)return;let h="";
+    if(race){const cur=Math.max(0,raceIdx.findIndex(r=>run.pos<=r[1]));for(let i=cur;i<Math.min(items.length,cur+6);i++)h+=chip(items[i].text,items[i].zh,i===cur);}
+    else{const it=curItem();if(it&&it.gl&&it.gl.length){h=it.gl.map(x=>chip(x.en,x.zh,run.pos>=x.s&&run.pos<x.e)).join("");
+      if(it.note&&it.text.split(/\s+/).some(t=>!GLOSS[t.toLowerCase()]))h+=`<span class="glnote">其餘是練習指法的字母組合，不是單字</span>`;}
+      else if(it&&it.src&&!it.gl)h=chip(it.src.en,it.src.zh,true);}
+    g.innerHTML=h;}
   function hud(){if(!run)return;    const tot=curTotals();const s=calc(tot.correct,tot.keys,tot.errs,tot.ms);
     $("#h-wpm").textContent=(tot.ms<1500||tot.correct<5)?0:Math.round(s.wpm);$("#h-acc").textContent=(tot.keys?s.acc:100)+"%";
     $("#h-combo").textContent=S.combo;$("#h-cbox").classList.toggle("hot",S.combo>=10);
@@ -846,6 +875,7 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
   function extendRace(){const more=pickWords(20);const add=more.map(w=>({text:w.en,zh:w.zh,pos:w.pos,w}));let acc=run.text.length;add.forEach(it=>{items.push(it);raceIdx.push([acc,acc+it.text.length]);acc+=it.text.length+1;});run.text=raceText();}
   function finishItem(){
     const it=curItem();const r=run;absorb(r);S.runs++;const clean=r.errs===0;
+    if(it.w)S.seen.push({en:it.w.en,zh:it.w.zh,bad:!clean});else{if(it.src)S.seen.push({en:it.src.en,zh:it.src.zh,bad:!clean});(it.gl||[]).forEach(g=>S.seen.push({en:g.en,zh:g.zh,bad:false}));}
     if(it.w){wordDone(it.w,clean,$("#target"));S.words++;if(clean)S.cleanWords++;
       const gain=Math.max(1,Math.round(it.text.length*(clean?1.2:.5)));S.sessionXp+=gain;addXp(gain,$("#target"));}
     else {const gain=Math.max(1,Math.round(it.text.length*.4));S.sessionXp+=gain;addXp(gain);}
@@ -868,7 +898,7 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
   function finish(){if(ended)return;ended=true;clearInterval(timer);clearTimeout(exTimer);ACT=null;
     if(run&&!run.done&&run.keys>0){absorb(run);}
     const s=calc(S.correct,S.keys,S.errs,S.ms);
-    if(race){Object.keys(raceMis).forEach(i=>{const it=items[i];if(it&&it.w){const o=P.wb[it.w.k]||(P.wb[it.w.k]={n:0,clean:0});o.n++;o.clean=0;}});
+    if(race){raceIdx.forEach((r,i)=>{const it=items[i];if(it&&it.w&&r[1]<run.pos)S.seen.push({en:it.text,zh:it.zh,bad:!!raceMis[i]});});Object.keys(raceMis).forEach(i=>{const it=items[i];if(it&&it.w){const o=P.wb[it.w.k]||(P.wb[it.w.k]={n:0,clean:0});o.n++;o.clean=0;}});
       const gain=Math.round(S.correct/3);S.sessionXp+=gain;addXp(gain);}
     dayTick();P.tot.sessions++;addHist(cfg.mode,s);
     let newBest=false;
@@ -894,6 +924,7 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
       <div class="grid"><div><b>${s.acc}%</b><span>正確率</span></div><div><b>${S.maxCombo}</b><span>最高連擊</span></div><div><b>${S.score}</b><span>分數</span></div><div><b>${S.words||S.runs}</b><span>${S.words?"單字":"行數"}</span></div><div><b>${S.errs}</b><span>錯誤次數</span></div><div><b>+${S.sessionXp}</b><span>經驗值</span></div></div>
       ${cfg.mode==="lesson"&&!o.pass?`<p class="mut">需要正確率 ≥ 95% 且字速 ≥ ${L.wpm} WPM。你這次：${s.acc}% / ${Math.round(s.wpm)} WPM。</p>`:""}
       <div class="row"><button class="btn" id="again">再來一次（Enter）</button>${nextL?`<button class="btn sec" id="nextl">下一課</button>`:""}<button class="btn sec" id="homeb">回首頁</button></div></div>`;
+    view.insertAdjacentHTML("beforeend",seenHtml(S.seen));
     $("#again").addEventListener("click",()=>cfg.again?cfg.again():go(route().join("/")));
     if(nextL)$("#nextl").addEventListener("click",()=>go("lesson/"+nextL.id));
     $("#homeb").addEventListener("click",()=>go("home"));
@@ -916,19 +947,19 @@ function startDrill(cfg){ // cfg: mode,title,items[{text,zh,pos,ex,exZh,w}],time
 function wordItems(arr){return arr.map(w=>({text:w.en,zh:w.zh,pos:w.pos,ex:w.ex,exZh:w.exZh,w}));}
 ROUTES.word=function(a,v){const start=()=>{const ws=pickWords(10);if(ws.length<3){toast("題庫太少，請多選幾個難度");return;}startDrill({mode:"word",title:"單字模式",items:wordItems(ws),again:start});};
   modeIntro(v,{title:"單字模式",sub:"看中文、聽發音，打出英文單字",phrases:true,how:["畫面顯示中文意思並自動念出單字，你要把英文打出來。","打完後會顯示並念出例句，約 2 秒後換下一個，按 Enter 可立刻下一個。","打錯會閃紅，整個單字有打錯就會進入「錯字本」。","每回 10 個單字，打得乾淨有經驗值加成。"],start});};
-ROUTES.sent=function(a,v){const start=()=>{const ws=shuf(sentencePool()).slice(0,6);if(ws.length<3){toast("題庫太少，請多選幾個難度");return;}startDrill({mode:"sent",title:"句子模式",items:ws.map(w=>({text:w.ex,exZh:w.exZh,zh:w.zh,w:null,src:w})),again:start});};
+ROUTES.sent=function(a,v){const start=()=>{const ws=shuf(sentencePool()).slice(0,6);if(ws.length<3){toast("題庫太少，請多選幾個難度");return;}startDrill({mode:"sent",title:"句子模式",items:ws.map(w=>({text:w.ex,exZh:w.exZh,zh:w.zh,w:null,src:w,gl:sentGloss(w)})),again:start});};
   modeIntro(v,{title:"句子模式",sub:"整句例句練習，順便記語感與標點",sent:true,how:["螢幕上方會顯示中文翻譯，請把英文句子一字不漏打出來（含大小寫與標點）。","每回 6 句，注意大寫字母要用 Shift。","句子都來自單字例句，與單字模式共用題庫。"],start});};
 ROUTES.spell=function(a,v){const start=()=>{const ws=pickWords(8);if(ws.length<3){toast("題庫太少，請多選幾個難度");return;}startDrill({mode:"spell",title:"拼字挑戰",items:wordItems(ws),again:start});};
   modeIntro(v,{title:"拼字挑戰",sub:"只看中文與發音，憑記憶拼出單字",phrases:true,how:["英文不會顯示，只有底線、中文意思和發音。","打錯 1 次後會提示下一個字母；按 Tab 也能直接提示。","每回 8 個單字，沒有提示的拼對最加分。"],start});};
 ROUTES.race=function(a,v){const start=()=>{const ws=pickWords(40);if(ws.length<3){toast("題庫太少，請多選幾個難度");return;}startDrill({mode:"race",title:"計時賽 60 秒",items:wordItems(ws),timeLimit:60,again:start});};
-  modeIntro(v,{title:"計時賽 60 秒",sub:"連續打單字，看你的最高字速",how:["打第一個字母時開始計時，60 秒內盡量打越多越好。","空白鍵代表單字之間的間隔，畫面會顯示目前單字的中文意思。","字速以每 5 個正確字元為 1 個單字計算。"],start});};
+  modeIntro(v,{title:"計時賽 60 秒",sub:"連續打單字，看你的最高字速",how:["打第一個字母時開始計時，60 秒內盡量打越多越好。","空白鍵代表單字之間的間隔。每個單字下方都會顯示中文意思，目前的單字會標成粉紅色。","字速以每 5 個正確字元為 1 個單字計算。"],start});};
 ROUTES.weak=function(a,v){
   const ks=Object.keys(P.keys).map(k=>({k,n:P.keys[k][0]+P.keys[k][1],e:P.keys[k][1]})).filter(x=>x.n>=3&&x.e>0&&x.k.length===1).map(x=>({...x,r:x.e/x.n})).sort((a,b)=>b.r-a.r||b.e-a.e).slice(0,5);
   if(!ks.length){v.innerHTML=emptyHtml("還沒有弱點資料","先去練習幾回，系統會記錄你容易打錯的鍵，再來這裡針對訓練。",`<a class="btn" href="#lessons">去上課</a>`);ACT=null;return;}
   const wk=ks.map(x=>x.k);
   const start=()=>{const cand=WORDS.filter(w=>isSingle(w)&&w.en.length<=8&&wk.some(k=>w.k.indexOf(k)>=0));const lines=[];
     for(let i=0;i<5;i++){const parts=[];let len=0;while(len<30){let t;if(cand.length&&T.rand()<.7)t=pick(cand).en.toLowerCase();else{t="";for(let j=0;j<3+Math.floor(T.rand()*2);j++)t+=pick(wk);}parts.push(t);len+=t.length+1;}lines.push(parts.join(" "));}
-    startDrill({mode:"weak",title:"弱點訓練",items:lines.map(t=>({text:t})),again:start});};
+    startDrill({mode:"weak",title:"弱點訓練",items:lines.map(t=>({text:t,gl:autoGloss(t,12),note:true})),again:start});};
   modeIntro(v,{title:"弱點訓練",sub:"針對你最容易打錯的鍵",filter:false,how:["系統挑出你錯誤率最高的鍵，組成練習句。","你的弱點鍵："+ks.map(x=>`<b>${esc(x.k)}</b>（錯 ${x.e}/${x.n}）`).join("、"),"共 5 行，請放慢速度、求準確。"],start});};
 ROUTES.review=function(a,v){
   const due=Object.keys(P.words).filter(k=>P.words[k].last&&!isMastered(k)&&dueAt(P.words[k])<=Date.now()).map(k=>WORDS.find(w=>w.k===k)).filter(Boolean);
@@ -954,8 +985,8 @@ ROUTES.guide=function(a,v){ACT=null;
 ROUTES.fall=function(a,v){
   const start=()=>{if(pool().filter(w=>/^[a-z]+$/.test(w.en)).length<10){toast("題庫太少，請多選幾個難度");return;}startFall();};
   modeIntro(v,{title:"下落遊戲",sub:"單字從天上掉下來，打完就消除",
-   how:["單字會一個個往下掉，直接打出它的英文就能鎖定並消除。","有 5 顆愛心，單字落到地板就少一顆；愛心用完遊戲結束。","連續打對會累積連擊，分數倍率越來越高；每消除 8 個單字升一級，速度加快。","Backspace 可以取消目前鎖定的單字，Esc 暫停。"],
-   extra:`<div class="card"><h3>${ico("eye-off")} 進階挑戰</h3>${toggleRow("hideEn","隱藏英文只看中文","掉下來的泡泡只顯示中文，要靠記憶拼出單字")}</div>`,start});};
+   how:["單字會一個個往下掉，每個泡泡都會顯示英文和中文意思，直接打出英文就能鎖定並消除。","有 5 顆愛心，單字落到地板就少一顆；愛心用完遊戲結束。","連續打對會累積連擊，分數倍率越來越高；每消除 8 個單字升一級，速度加快。","Backspace 可以取消目前鎖定的單字，Esc 暫停。"],
+   extra:`<div class="card"><h3>${ico("eye-off")} 進階挑戰</h3>${toggleRow("hideEn","隱藏英文，只看中文","泡泡只顯示中文意思和底線，要靠記憶拼出單字")}</div>`,start});};
 function startFall(){
   const view=$("#view");
   const W0=Math.min(app.clientWidth-32,900),H=touch||innerWidth<560?400:470;
@@ -966,7 +997,7 @@ function startFall(){
   if(touch)$("#veil").addEventListener("click",()=>{focusHin();$("#veil").classList.remove("on");});
   const cv=$("#cv");const dpr=Math.min(2,window.devicePixelRatio||1);cv.width=W0*dpr;cv.height=H*dpr;cv.style.height=H+"px";
   const cx=cv.getContext("2d");cx.scale(dpr,dpr);
-  const F={W:W0,H,words:[],lives:5,score:0,level:1,combo:0,maxCombo:0,done:0,errs:0,keys:0,spawnT:.3,locked:null,parts:[],floats:[],over:false,t:0,id:0,miss:[],hideEn:!!P.set.hideEn,clean:0};
+  const F={W:W0,H,words:[],lives:5,score:0,level:1,combo:0,maxCombo:0,done:0,errs:0,keys:0,spawnT:.3,locked:null,parts:[],floats:[],over:false,t:0,id:0,log:[],miss:[],hideEn:!!P.set.hideEn,clean:0};
   let raf=0,lastT=0,ended=false,lastKeyT=0;
   const speed=()=>26+F.level*8;
   const interval=()=>Math.max(.95,2.7-F.level*.2);
@@ -977,9 +1008,9 @@ function startFall(){
     F.words.push({id:++F.id,w,t:w.en,n:0,y:-10,fx:T.rand(),vy:speed()*(.85+T.rand()*.3),hit:0});}
   function burst(x,y,col,n){for(let i=0;i<n;i++){const an=T.rand()*Math.PI*2,sp=40+T.rand()*160;F.parts.push({x,y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp-60,l:.7+T.rand()*.4,c:col});}}
   function wx(o){const wpx=pillW(o);return 8+o.fx*Math.max(0,F.W-wpx-16);}
-  function pillW(o){const len=Math.max(o.t.length,F.hideEn?o.t.length:0);return Math.max(86,len*14+36,(F.hideEn?(o.w.zh.length*15+30):0));}
+  function pillW(o){if(o.pw)return o.pw;cx.save();cx.font="700 19px Inter,system-ui,sans-serif";const a=cx.measureText(o.t).width;cx.font="600 13px 'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif";const b=cx.measureText(shortZh(o.w.zh)).width;cx.restore();o.pw=Math.min(F.W-16,Math.max(92,a+40,b+30));return o.pw;}
   function destroy(o){const i=F.words.indexOf(o);if(i>=0)F.words.splice(i,1);if(F.locked===o)F.locked=null;
-    F.done++;F.clean+=o.err?0:1;const mult=1+Math.floor(F.combo/10)*.5;F.score+=Math.round(o.t.length*10*mult);
+    F.log.push({en:o.w.en,zh:o.w.zh,bad:!!o.err});F.done++;F.clean+=o.err?0:1;const mult=1+Math.floor(F.combo/10)*.5;F.score+=Math.round(o.t.length*10*mult);
     const x=wx(o)+pillW(o)/2,y=o.y+14;burst(x,y,"#f6659d",18);burst(x,y,"#ffd27a",8);SND.word();
     F.floats.push({x,y,t:"+"+Math.round(o.t.length*10*mult),l:.9,c:"#e1457f"});
     wordDone(o.w,!o.err,null);
@@ -987,12 +1018,12 @@ function startFall(){
     if(F.done%8===0){F.level++;SND.level();F.floats.push({x:F.W/2,y:F.H/3,t:"LEVEL "+F.level,l:1.6,c:"#b92d66",big:1});const r=cv.getBoundingClientRect();FX.confetti(r.left+r.width/2,r.top+r.height*.3,90);F.lives=Math.min(5,F.lives+(F.level%3===0?1:0));}
     hud();}
   function lose(o){const i=F.words.indexOf(o);if(i>=0)F.words.splice(i,1);if(F.locked===o)F.locked=null;F.lives--;F.combo=0;
-    const w=o.w;const b=P.wb[w.k]||(P.wb[w.k]={n:0,clean:0});b.n++;b.clean=0;const s=wstat(w.k);s.bad++;s.streak=0;
-    burst(wx(o)+pillW(o)/2,F.H-12,"#e0475b",14);SND.err();F.floats.push({x:wx(o)+pillW(o)/2,y:F.H-30,t:"漏掉了",l:.9,c:"#e0475b"});F.shake=.3;
+    F.log.push({en:o.w.en,zh:o.w.zh,bad:true});const w=o.w;const b=P.wb[w.k]||(P.wb[w.k]={n:0,clean:0});b.n++;b.clean=0;const s=wstat(w.k);s.bad++;s.streak=0;
+    burst(wx(o)+pillW(o)/2,F.H-12,"#e0475b",14);SND.err();F.floats.push({x:wx(o)+pillW(o)/2,y:F.H-70,t:"漏掉了",l:.9,c:"#e0475b"});F.shake=.3;
     if(F.lives<=0){F.lives=0;F.over=true;hud();finish();}else hud();}
   function step(dt){if(F.over)return;F.t+=dt;
     F.spawnT-=dt;if(F.spawnT<=0&&F.words.length<maxOn()){spawn();F.spawnT=interval();}else if(F.spawnT<=0)F.spawnT=.3;
-    for(const o of F.words.slice()){o.y+=o.vy*dt;if(o.hit>0)o.hit-=dt;if(o.y>F.H-26)lose(o);if(F.over)return;}
+    for(const o of F.words.slice()){o.y+=o.vy*dt;if(o.hit>0)o.hit-=dt;if(o.y>F.H-58)lose(o);if(F.over)return;}
     F.parts.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=380*dt;p.l-=dt;});F.parts=F.parts.filter(p=>p.l>0);
     F.floats.forEach(f=>{f.y-=26*dt;f.l-=dt;});F.floats=F.floats.filter(f=>f.l>0);if(F.shake>0)F.shake-=dt;}
   function onChar(ch){if(ended||paused||F.over)return;F.keys++;const c=ch.toLowerCase();
@@ -1012,15 +1043,15 @@ function startFall(){
     // 地板
     const gg=cx.createLinearGradient(0,F.H-26,0,F.H);gg.addColorStop(0,"rgba(246,101,157,0)");gg.addColorStop(1,"rgba(246,101,157,.38)");cx.fillStyle=gg;cx.fillRect(0,F.H-26,F.W,26);
     cx.textBaseline="middle";
-    F.words.forEach(o=>{const w=pillW(o),x=wx(o),h=F.hideEn?44:36,y=o.y;const danger=y>F.H*.7;
+    F.words.forEach(o=>{const w=pillW(o),x=wx(o),h=52,y=o.y;const danger=y>F.H*.7;
       cx.save();cx.shadowColor=F.locked===o?"rgba(246,101,157,.55)":"rgba(180,60,110,.18)";cx.shadowBlur=F.locked===o?18:10;cx.shadowOffsetY=3;
       rr(x,y,w,h,18);cx.fillStyle=o.hit>0?"#ffe0e6":danger?"#fff0f0":"#fff";cx.fill();cx.restore();
       rr(x,y,w,h,18);cx.lineWidth=F.locked===o?2.5:1.2;cx.strokeStyle=F.locked===o?"#f6659d":danger?"#f2a0ad":"#ffc6da";cx.stroke();
-      cx.font="700 19px Inter,system-ui,sans-serif";cx.textAlign="center";
-      if(F.hideEn){cx.font="700 15px 'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif";cx.fillStyle="#8a1f4c";cx.fillText(o.w.zh,x+w/2,y+14);
-        cx.font="700 14px ui-monospace,Menlo,monospace";cx.fillStyle="#e1457f";cx.fillText(o.t.slice(0,o.n)+"_".repeat(o.t.length-o.n),x+w/2,y+32);}
-      else{const full=o.t,tw=cx.measureText(full).width;const sx=x+w/2-tw/2;cx.textAlign="left";
-        const a=full.slice(0,o.n),b=full.slice(o.n);cx.fillStyle="#e1457f";cx.fillText(a,sx,y+h/2);const aw=cx.measureText(a).width;cx.fillStyle="#3a2230";cx.fillText(b,sx+aw,y+h/2);}
+      cx.textAlign="center";
+      if(F.hideEn){cx.font="700 17px ui-monospace,Menlo,monospace";cx.fillStyle="#e1457f";cx.fillText(o.t.slice(0,o.n)+" "+"_ ".repeat(o.t.length-o.n).trim(),x+w/2,y+19);}
+      else{cx.font="700 19px Inter,system-ui,sans-serif";const full=o.t,tw=cx.measureText(full).width;const sx=x+w/2-tw/2;cx.textAlign="left";
+        const a=full.slice(0,o.n),b=full.slice(o.n);cx.fillStyle="#e1457f";cx.fillText(a,sx,y+19);const aw=cx.measureText(a).width;cx.fillStyle="#3a2230";cx.fillText(b,sx+aw,y+19);}
+      cx.textAlign="center";cx.font="600 13px 'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif";cx.fillStyle="#8a1f4c";cx.fillText(shortZh(o.w.zh),x+w/2,y+39);
     });
     F.parts.forEach(p=>{cx.globalAlpha=Math.max(0,p.l);cx.fillStyle=p.c;cx.beginPath();cx.arc(p.x,p.y,3.2,0,7);cx.fill();});cx.globalAlpha=1;
     F.floats.forEach(f=>{cx.globalAlpha=Math.min(1,f.l*1.5);cx.fillStyle=f.c;cx.font=(f.big?"800 26px":"800 16px")+" 'Noto Sans TC',system-ui,sans-serif";cx.textAlign="center";cx.fillText(f.t,f.x,f.y);});cx.globalAlpha=1;
@@ -1034,7 +1065,7 @@ function startFall(){
     view.innerHTML=`<div class="card res center"><div class="mascot" style="width:110px;height:110px;margin:0 auto">${mascot(nb?"happy":"sleepy")}</div><h2 style="margin:6px 0 0">遊戲結束</h2><div class="big">${F.score}</div>${nb?`<div class="tag g">新紀錄</div>`:""}
     <div class="grid"><div><b>${F.level}</b><span>等級</span></div><div><b>${F.done}</b><span>消除單字</span></div><div><b>${F.maxCombo}</b><span>最高連擊</span></div><div><b>${c.acc}%</b><span>正確率</span></div><div><b>${P.best.fall_score||0}</b><span>最高分</span></div><div><b>+${gain}</b><span>經驗值</span></div></div>
     <p class="mut">漏掉的單字已放進錯字本，可以去重練。</p><div class="row"><button class="btn" id="again">再玩一次（Enter）</button><button class="btn sec" id="wbb">看錯字本</button><button class="btn sec" id="homeb">回首頁</button></div></div>`;
-    $("#again").addEventListener("click",startFall);$("#homeb").addEventListener("click",()=>go("home"));$("#wbb").addEventListener("click",()=>go("wrongbook"));ACT={enter:startFall};
+    view.insertAdjacentHTML("beforeend",seenHtml(F.log));$("#again").addEventListener("click",startFall);$("#homeb").addEventListener("click",()=>go("home"));$("#wbb").addEventListener("click",()=>go("wrongbook"));ACT={enter:startFall};
     window.TY.lastResult={F:Object.assign({},F,{words:[]}),nb};}
   function doPause(){if(ended||paused)return;paused=true;const b=document.createElement("div");b.className="pause";b.id="pausebox";
     b.innerHTML=`<div class="box"><div class="mascot" style="width:90px;height:90px;margin:0 auto">${mascot("sleepy")}</div><h2>已暫停</h2><p class="mut">單字停止掉落。按 Esc 或點「繼續」。</p><div class="row"><button class="btn" id="resumeb">繼續</button><button class="btn sec" id="quitb">離開</button></div></div>`;document.body.appendChild(b);
@@ -1096,7 +1127,7 @@ ROUTES.settings=function(a,v){ACT=null;const idx=mainIdx();const codes=idx.codes
   v.innerHTML=`<div class="hero"><h1>設定與帳號</h1><p class="mut">打字資料存在這台裝置，依帳號分開。</p></div>
   <div class="card"><h3>${ico("user")} 目前帳號</h3><div class="switch"><div class="t"><b>練習資料屬於</b><span class="mut" style="font-size:.82rem">會自動使用主 App 目前登入的帳號；也可以切換</span></div><select class="sel" id="profsel" aria-label="切換帳號">${codes.map(c=>`<option value="${esc(c)}"${c===CODE?" selected":""}>${esc(c)}</option>`).join("")}<option value="GUEST"${CODE==="GUEST"?" selected":""}>訪客（不綁帳號）</option></select></div>
    <p class="srcnote">這裡只讀取主 App 的帳號清單，不會修改主 App 的任何資料。</p></div>
-  <div class="card"><h3>${ico("settings")} 遊戲設定</h3>${toggleRow("sound","音效","按鍵、連擊與升級的合成音效")}${toggleRow("voice","自動發音","出現單字或例句時用瀏覽器語音念出")}${toggleRow("blind","盲打模式（預設）","隱藏鍵盤與提示，打錯才短暫顯示")}${toggleRow("blindNoBack","盲打時禁止退格","選擇「可退格修正」時，盲打模式下仍不能退格")}${toggleRow("hideEn","下落遊戲只顯示中文","隱藏英文單字")}
+  <div class="card"><h3>${ico("settings")} 遊戲設定</h3>${toggleRow("sound","音效","按鍵、連擊與升級的合成音效")}${toggleRow("voice","自動發音","出現單字或例句時用瀏覽器語音念出")}${toggleRow("blind","盲打模式（預設）","隱藏鍵盤與提示，打錯才短暫顯示")}${toggleRow("blindNoBack","盲打時禁止退格","選擇「可退格修正」時，盲打模式下仍不能退格")}${toggleRow("hideEn","下落遊戲隱藏英文","泡泡只顯示中文意思和底線")}
    <div class="switch"><div class="t"><b>打錯字時</b></div><select class="sel" id="polsel" aria-label="錯字處理">${[["stop","停在錯字，打對才前進"],["free","可用退格鍵修正"],["noback","打錯也前進，禁止退格"]].map(a=>`<option value="${a[0]}"${P.set.policy===a[0]?" selected":""}>${a[1]}</option>`).join("")}</select></div>
    <div class="switch"><div class="t"><b>每日單字目標</b></div><select class="sel" id="goalsel" aria-label="每日目標">${[10,20,30,50,80].map(n=>`<option value="${n}"${P.set.goal===n?" selected":""}>${n} 個</option>`).join("")}</select></div></div>
   <div class="card"><h3>${ico("download")} 備份與還原</h3><p class="mut" style="font-size:.88rem">主 App 的備份碼不包含打字資料。請在這裡複製打字備份，換裝置時貼上還原（會與現有資料合併，不會覆蓋）。</p>
@@ -1116,7 +1147,7 @@ ROUTES.settings=function(a,v){ACT=null;const idx=mainIdx();const codes=idx.codes
   $("#resetb").addEventListener("click",()=>{if(confirm("確定要清除這個帳號的打字資料嗎？")){P=blankP();save();toast("已清除");render();}});};
 /* ===================== 啟動與測試掛勾 ===================== */
 window.TY={calc,mkRun,runKey,runBack,runStats,runCorrect,T,policy,keyFor,LESSONS,lessonLines,WORDS,pickWords,pool,sentencePool,encodeP,decodeP,mergeP,go,
-  get P(){return P;},get CODE(){return CODE;},get ACT(){return ACT;},get paused(){return paused;},setTouch(b){touch=b;render();},save,loadProfile,levelOf,streakDays,render,SND,isTypable,sanitizeP};
+  GLOSS,autoGloss,lessonItems,shortZh,get P(){return P;},get CODE(){return CODE;},get ACT(){return ACT;},get paused(){return paused;},setTouch(b){touch=b;render();},save,loadProfile,levelOf,streakDays,render,SND,isTypable,sanitizeP};
 initProfile();dayTick();save();
 if(!location.hash)location.hash="#home";
 render();
